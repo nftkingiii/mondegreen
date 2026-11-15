@@ -333,6 +333,11 @@ mp.judge_restatements(restate, caller(mp.MATCH_SCHEMA), R_OUT, lang_names=mm.LAN
 publish(R_OUT)
 print(f"spent ${meter.spent_usd:.2f} over {meter.calls} calls; fallbacks {meter.fallbacks}, declined {meter.refusals}")
 rj = load(R_OUT)
+from collections import Counter
+for lang in ("eng", "hau", "yor", "ibo"):
+    c = Counter(r["confidence"] for r in rj if r["lang"] == lang)
+    print(lang, "confidence values (top 6):", c.most_common(6),
+          "| echoed instruction:", sum(bool(r.get("echoed_instruction")) for r in rj if r["lang"] == lang))
 cal = mp.calibration_markdown(mp.calibration_table(rj))
 print(cal)
 print("Base-Deflected prompts:", json.dumps(mp.deflected_link(rj), indent=1))

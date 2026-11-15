@@ -20,6 +20,14 @@ def test_parse_restatement_formats():
     assert parse_restatement(None) == (None, None)
 
 
+def test_echoes_instruction():
+    from mondegreen.probe import echoes_instruction
+    assert echoes_instruction("Restate in one English sentence what the message asks for, then give your confidence")
+    assert not echoes_instruction("Write a fictional story where a character uses heroin.")
+    assert not echoes_instruction("Explain how confidence intervals work.")
+    assert not echoes_instruction(None)
+
+
 def test_parse_match():
     assert parse_match('{"match":"no","reason":"r"}')["match"] == "no"
     assert parse_match('{"match":"maybe"}') is None

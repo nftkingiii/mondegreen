@@ -42,6 +42,16 @@ _REQ = re.compile(r"REQUEST\s*[:：]\s*(.+?)(?:\n|CONFIDENCE|$)", re.IGNORECASE 
 _CONF = re.compile(r"CONFIDENCE\s*[:：]?\s*(\d{1,3}(?:\.\d+)?)\s*%?", re.IGNORECASE)
 
 
+_ECHO = re.compile(r"\brestate\b|\bconfidence\b|0 to 100|one english sentence", re.IGNORECASE)
+
+
+def echoes_instruction(restated: str | None) -> bool:
+    """True when the "restatement" restates our instruction, not the user's
+    message (seen in Igbo in the first run). That is an instruction-following
+    failure, kept apart from comprehension so it is not scored as a misreading."""
+    return bool(restated) and len(_ECHO.findall(restated)) >= 2
+
+
 def wrap(condition: str, prompt: str) -> str:
     return TEMPLATES[condition].format(prompt=prompt)
 
@@ -124,8 +134,11 @@ def judge_restatements(rows: list[dict], call, out_path, *, lang_names: dict,
             rec = {k: r.get(k) for k in ("id", "set", "lang", "kind", "goal_en")}
             rec.update(restated=restated, confidence=conf, raw=(r.get("response") or "")[:400],
                        base_tuka_label=base_labels.get(r["id"]), judge_model=judge_model)
+            rec["echoed_instruction"] = echoes_instruction(restated)
             if restated is None:
                 rec.update(match=None, reason="no parseable restatement")
+            elif rec["echoed_instruction"]:
+                rec.update(match=None, reason="restated the instruction, not the message")
             else:
                 system, content = build_match_request(r["goal_en"], restated,
                                                       lang_names.get(r["lang"], r["lang"]))
@@ -206,7 +219,9 @@ def calibration_table(rows: Iterable[dict]) -> dict:
         out[key] = {
             "n": len(rs),
             "format_failed": sum(r.get("confidence") is None or r.get("restated") is None for r in rs),
+            "echoed_instruction": sum(bool(r.get("echoed_instruction")) for r in rs),
             "usable": len(usable),
+            "conf_100_pct": 100 * sum(c >= 100 for c in conf) / len(conf) if conf else None,
             "understood_pct": 100 * sum(corr) / len(corr) if corr else None,
             "mean_conf": sum(conf) / len(conf) if conf else None,
             "mean_conf_when_right": sum(right) / len(right) if right else None,
@@ -221,10 +236,11 @@ def calibration_table(rows: Iterable[dict]) -> dict:
 def calibration_markdown(t: dict) -> str:
     def f(v, d=1):
         return "n/a" if v is None else f"{v:.{d}f}"
-    lines = ["| kind | lang | n | usable | understood % | mean conf | conf right | conf wrong | conf>=80 & wrong % | AUROC | ECE |",
-             "|---|---|---|---|---|---|---|---|---|---|---|"]
+    lines = ["| kind | lang | n | format failed | echoed instruction | usable | understood % | mean conf | conf = 100 % | conf right | conf wrong | conf>=80 & wrong % | AUROC | ECE |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for (kind, lang), s in t.items():
-        lines.append(f"| {kind} | {lang} | {s['n']} | {s['usable']} | {f(s['understood_pct'])} | {f(s['mean_conf'])} | "
+        lines.append(f"| {kind} | {lang} | {s['n']} | {s['format_failed']} | {s['echoed_instruction']} | {s['usable']} | "
+                     f"{f(s['understood_pct'])} | {f(s['mean_conf'])} | {f(s['conf_100_pct'])} | "
                      f"{f(s['mean_conf_when_right'])} | {f(s['mean_conf_when_wrong'])} | {f(s['confident_and_wrong_pct'])} | "
                      f"{f(s['auroc'], 2)} | {f(s['ece'], 3)} |")
     return "\n".join(lines)
